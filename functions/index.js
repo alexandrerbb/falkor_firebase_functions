@@ -59,7 +59,8 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
         'verified_acc': userData?.email_verified,
         'zone': data.zone,
         'timestamp': new Date(),
-        'uid': userData?.uid
+        'uid': userData?.uid,
+        'comment' : data?.comment
     }
 
     let returnValue = {
@@ -85,7 +86,7 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
                     if (basketQuantity <= productData?.max) {
                         if (basketQuantity >= productData?.stock) {
                             order.basket[product] = productData?.stock
-                            await firestore.collection("products").doc(product).doc.update({
+                            await firestore.collection("products").doc(product).update({
                                 stock : 0
                             })
                             returnValue.errors = [
