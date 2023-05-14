@@ -5,6 +5,11 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 admin.initializeApp();
 
+function getLastCommands() {
+    const firestore = admin.firestore();
+    //await firestore 
+}
+
 exports.commandHistory = functions.https.onCall((data, context) => {
 
 });
@@ -30,7 +35,6 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError(
             "internal",
             "Zone n'est pas renseigné",
-            error
         );
 
     // Vérifie que le site de livraison existe.
@@ -40,13 +44,27 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
                 throw new functions.https.HttpsError(
                     "internal",
                     "Zone n'existe pas",
-                    error
                 );
             }
         })
         .catch(error => {
             console.error('Erreur lors de la vérification de la collection delivery_sites :', error);
         });
+
+    // Data envoyée dans 'orders' finalement.
+    let order = {
+        basket: {},
+        'name': userData?.name,
+        'email': userData?.email,
+        'verified_acc': userData?.email_verified,
+        'zone': data.zone,
+        'timestamp': new Date(),
+        'uid': userData?.uid
+    }
+
+    let returnValue = {
+        errors: []
+    }
 
     // Vérifie que les produits sont toujours en stock.
     for (let product in data?.basket) {
@@ -55,15 +73,31 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
 
         if (Number.isInteger(basketQuantity)) { // On vérifie que la quantité récupérée est typée de manière cohérente (et non nulle.)
 
-            await firestore.collection("products").where('name', '==', product).get().then(querySnapshot => {
+            await firestore.collection("products").doc(product).get().then(doc => {
                 // On va vérifier que les stocks sont suffiants.
-                if (querySnapshot.empty) throw new functions.https.HttpsError(
+                if (!doc.exists) throw new functions.https.HttpsError(
                     "internal",
-                    "Produit n'existe pas en base.",
-                    error
+                    "Produit n'existe pas en base.",    // Mauvais nom de produit.
                 )
                 else {
-
+                    const productData = doc.data()
+                    if (basketQuantity <= productData?.max) {
+                        if (basketQuantity >= productData?.stock) {
+                            order.basket[product] = productData?.stock
+                            doc.update({
+                                stock : 0
+                            })
+                            returnValue.errors = [
+                                ...returnValue.errors,
+                                productData?.stock === 0 ? `Il n'y a plus de ${productData?.name} en stock.`
+                                    : `Il ne restait plus que ${productData?.stock} ${productData?.name} en stock. Ils ont été ajoutés à votre panier.`]
+                        } else {
+                            order.basket[product] = basketQuantity
+                            doc.update({
+                                stock : productData?.stock - basketQuantity
+                            })
+                        }
+                    }
                 }
 
             }).catch(error => {
@@ -73,30 +107,14 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
             throw new functions.https.HttpsError(
                 "internal",
                 "Problème lors de la vérification des stocks",
-                error
             );
-    }
-
-
-    // Data envoyée dans 'orders' finalement.
-    order = {
-        basket: { ...data.basket },
-        'name': userData?.name,
-        'email': userData?.email,
-        'verified_acc': userData?.email_verified,
-        'zone': data.zone,
-        'timestamp': new Date(),
-        'uid': userData?.uid
     }
 
     console.log(order)
 
     // Envoie des données en base.
-    firestore.collection("orders").add(data)
+    firestore.collection("orders").add(order)
         .then((docRef) => {
-            return {
-                message: `Commande créée.`
-            };
         })
         .catch((error) => {
             throw new functions.https.HttpsError(
@@ -105,4 +123,6 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
                 error
             );
         });
+
+    return returnValue;
 })
