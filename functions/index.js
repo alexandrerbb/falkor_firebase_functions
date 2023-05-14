@@ -5,12 +5,18 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 admin.initializeApp();
 
+exports.commandHistory = functions.https.onCall((data, context) => {
+
+});
+
 exports.orderBasket = functions.https.onCall((data, context) => {
+
     if (!context.auth) return "Please log in"
+    const userData = context.auth.token
 
     const firestore = admin.firestore();
 
-    if (! data.hasOwnProperty('zone'))
+    if (!data.hasOwnProperty('zone'))
         throw new functions.https.HttpsError(
             "internal",
             "Zone n'est pas renseigné",
@@ -30,15 +36,22 @@ exports.orderBasket = functions.https.onCall((data, context) => {
             console.error('Erreur lors de la vérification de la collection delivery_sites :', error);
         });
 
-    const userData = context.auth.token
+    for (let product in data?.basket) {
+        const basketQuantity = data?.basket[product]?.quantity
+        if (Number.isInteger(basketQuantity)) {
+
+        }
+
+    }
 
     order = {
         basket: { ...data.basket },
         'name': userData?.name,
         'email': userData?.email,
-        'verified': userData?.email_verified,
+        'verified_acc': userData?.email_verified,
         'zone': data.zone,
-        'time': new Date
+        'timestamp': new Date(),
+        'uid': userData?.uid
     }
 
     console.log(order)
