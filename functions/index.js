@@ -63,6 +63,7 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
     }
 
     let returnValue = {
+        status_code : 1,
         errors: []
     }
 
@@ -73,7 +74,7 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
 
         if (Number.isInteger(basketQuantity)) { // On vérifie que la quantité récupérée est typée de manière cohérente (et non nulle.)
 
-            await firestore.collection("products").doc(product).get().then(doc => {
+            await firestore.collection("products").doc(product).get().then(async doc => {
                 // On va vérifier que les stocks sont suffiants.
                 if (!doc.exists) throw new functions.https.HttpsError(
                     "internal",
@@ -84,7 +85,7 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
                     if (basketQuantity <= productData?.max) {
                         if (basketQuantity >= productData?.stock) {
                             order.basket[product] = productData?.stock
-                            doc.update({
+                            await firestore.collection("products").doc(product).doc.update({
                                 stock : 0
                             })
                             returnValue.errors = [
@@ -93,7 +94,7 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
                                     : `Il ne restait plus que ${productData?.stock} ${productData?.name} en stock. Ils ont été ajoutés à votre panier.`]
                         } else {
                             order.basket[product] = basketQuantity
-                            doc.update({
+                            await firestore.collection("products").doc(product).update({
                                 stock : productData?.stock - basketQuantity
                             })
                         }
@@ -115,6 +116,7 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
     // Envoie des données en base.
     firestore.collection("orders").add(order)
         .then((docRef) => {
+            returnValue.status_code = 0
         })
         .catch((error) => {
             throw new functions.https.HttpsError(
