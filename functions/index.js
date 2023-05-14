@@ -26,7 +26,7 @@ const returns = {
 exports.orderBasket = functions.https.onCall(async (data, context) => {
 
     if (!context.auth) return "Please log in"
-    const userData = context.auth.token
+    const userData = await admin.auth().getUser(context.auth.token.uid)
 
     const firestore = admin.firestore();
 
@@ -54,9 +54,9 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
     // Data envoyée dans 'orders' finalement.
     let order = {
         basket: {},
-        'name': userData?.name,
+        'name': userData?.displayName,
         'email': userData?.email,
-        'verified_acc': userData?.email_verified,
+        'verified_acc': userData?.emailVerified,
         'zone': data.zone,
         'timestamp': new Date(),
         'uid': userData?.uid,
