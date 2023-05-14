@@ -60,7 +60,8 @@ exports.orderBasket = functions.https.onCall(async (data, context) => {
         'zone': data.zone,
         'timestamp': new Date(),
         'uid': userData?.uid,
-        'comment' : data?.comment
+        'comment' : data?.comment,
+        'floor': data?.floor,
     }
 
     let returnValue = {
