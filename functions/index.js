@@ -1,132 +1,120 @@
-// The Cloud Functions for Firebase SDK to create Cloud Functions and set up triggers.
-const functions = require('firebase-functions');
-
-// The Firebase Admin SDK to access Firestore.
-const admin = require('firebase-admin');
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
 admin.initializeApp();
 
-function getLastCommands() {
-    const firestore = admin.firestore();
-    //await firestore 
-}
-
 exports.commandHistory = functions.https.onCall((data, context) => {
-
+  // function body
 });
 
-
-const returns = {
-    ok: {
-        status_code: 0,
-        message: "votre commande a été passée avec succès."
-    },
-}
-
-
 exports.orderBasket = functions.https.onCall(async (data, context) => {
+  if (!context.auth) return "Please log in";
+  const userData = await admin.auth().getUser(context.auth.token.uid);
 
-    if (!context.auth) return "Please log in"
-    const userData = await admin.auth().getUser(context.auth.token.uid)
+  const firestore = admin.firestore();
 
-    const firestore = admin.firestore();
+  // Check that the 'zone' field is passed in as a parameter
+  if (!Object.prototype.hasOwnProperty.call(data, "zone")) {
+    throw new functions.https.HttpsError(
+        "internal",
+        "Zone is not provided",
+    );
+  }
 
-    // Vérifie que le champs zone est bien passé en en paramètres.
-    if (!data.hasOwnProperty('zone'))
+  // Check that the delivery site exists
+  const querySnapshot = await firestore
+      .collection("delivery_sites")
+      .where("name", "==", data.zone)
+      .get();
+  if (querySnapshot.empty) {
+    throw new functions.https.HttpsError(
+        "internal",
+        "Zone does not exist",
+    );
+  }
+
+  const order = {
+    basket: {},
+    name: userData.displayName,
+    email: userData.email,
+    verified_acc: userData.emailVerified,
+    zone: data.zone,
+    timestamp: new Date(),
+    uid: userData.uid,
+    comment: data.comment,
+    floor: data.floor,
+  };
+
+  const returnValue = {
+    status_code: 1,
+    errors: [],
+  };
+
+  // Check that the products are still in stock
+  for (const product in data.basket) {
+    if (Object.prototype.hasOwnProperty.call(data.basket, product)) {
+      const basketQuantity = data.basket[product].quantity;
+      if (Number.isInteger(basketQuantity)) {
+        const doc = await firestore.collection("products").doc(product).get();
+        if (!doc.exists) {
+          throw new functions.https.HttpsError(
+              "internal",
+              "Product does not exist in database",
+          );
+        } else {
+          const productData = doc.data();
+          if (basketQuantity <= productData.max) {
+            if (basketQuantity >= productData.stock) {
+              order.basket[product] = productData.stock;
+              await firestore
+                  .collection("products")
+                  .doc(product)
+                  .update({
+                    stock: 0,
+                  });
+              returnValue.errors = [
+                ...returnValue.errors,
+                productData.stock === 0 ?
+                  `Il n'y a plus de ${productData.name} en stock.` :
+                  `Il ne restait plus que ${productData.stock}
+                  ${productData.name} en stock.
+                  Ils ont été ajoutés à votre panier.`,
+              ];
+            } else {
+              order.basket[product] = basketQuantity;
+              await firestore
+                  .collection("products")
+                  .doc(product)
+                  .update({
+                    stock: productData.stock - basketQuantity,
+                  });
+            }
+          }
+        }
+      } else {
         throw new functions.https.HttpsError(
             "internal",
-            "Zone n'est pas renseigné",
+            "Problem with stock verification",
         );
-
-    // Vérifie que le site de livraison existe.
-    await firestore.collection("delivery_sites").where('name', '==', data?.zone).get()
-        .then(querySnapshot => {
-            if (querySnapshot.empty) {
-                throw new functions.https.HttpsError(
-                    "internal",
-                    "Zone n'existe pas",
-                );
-            }
-        })
-        .catch(error => {
-            console.error('Erreur lors de la vérification de la collection delivery_sites :', error);
-        });
-
-    // Data envoyée dans 'orders' finalement.
-    let order = {
-        basket: {},
-        'name': userData?.displayName,
-        'email': userData?.email,
-        'verified_acc': userData?.emailVerified,
-        'zone': data.zone,
-        'timestamp': new Date(),
-        'uid': userData?.uid,
-        'comment' : data?.comment,
-        'floor': data?.floor,
+      }
     }
+  }
 
-    let returnValue = {
-        status_code : 1,
-        errors: []
-    }
+  console.log(order);
 
-    // Vérifie que les produits sont toujours en stock.
-    for (let product in data?.basket) {
-        // Product est la clé du produit et est équivalent au champs 'name' dans la base firestore.
-        const basketQuantity = data?.basket[product]?.quantity // On récupère la quantité du produit.
+  // Add data to Firestore
+  await firestore
+      .collection("orders")
+      .add(order)
+      .then(() => {
+        returnValue.status_code = 0;
+      })
+      .catch((error) => {
+        throw new functions.https.HttpsError(
+            "internal",
+            "An error occurred while adding the user.",
+            error,
+        );
+      });
 
-        if (Number.isInteger(basketQuantity)) { // On vérifie que la quantité récupérée est typée de manière cohérente (et non nulle.)
-
-            await firestore.collection("products").doc(product).get().then(async doc => {
-                // On va vérifier que les stocks sont suffiants.
-                if (!doc.exists) throw new functions.https.HttpsError(
-                    "internal",
-                    "Produit n'existe pas en base.",    // Mauvais nom de produit.
-                )
-                else {
-                    const productData = doc.data()
-                    if (basketQuantity <= productData?.max) {
-                        if (basketQuantity >= productData?.stock) {
-                            order.basket[product] = productData?.stock
-                            await firestore.collection("products").doc(product).update({
-                                stock : 0
-                            })
-                            returnValue.errors = [
-                                ...returnValue.errors,
-                                productData?.stock === 0 ? `Il n'y a plus de ${productData?.name} en stock.`
-                                    : `Il ne restait plus que ${productData?.stock} ${productData?.name} en stock. Ils ont été ajoutés à votre panier.`]
-                        } else {
-                            order.basket[product] = basketQuantity
-                            await firestore.collection("products").doc(product).update({
-                                stock : productData?.stock - basketQuantity
-                            })
-                        }
-                    }
-                }
-
-            }).catch(error => {
-                console.error('Erreur lors de la récupération des produits dans la base de données :', error)
-            })
-        } else
-            throw new functions.https.HttpsError(
-                "internal",
-                "Problème lors de la vérification des stocks",
-            );
-    }
-
-    console.log(order)
-
-    // Envoie des données en base.
-    firestore.collection("orders").add(order)
-        .then((docRef) => {
-            returnValue.status_code = 0
-        })
-        .catch((error) => {
-            throw new functions.https.HttpsError(
-                "internal",
-                "Une erreur s'est produite lors de l'ajout de l'utilisateur.",
-                error
-            );
-        });
-
-    return returnValue;
-})
+  return returnValue;
+});
